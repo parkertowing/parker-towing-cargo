@@ -1550,12 +1550,13 @@ async function getAccessToken() {
 // ── Read a sheet tab ──
 async function readSheet(tabName) {
   const token = await getAccessToken();
-  const range = encodeURIComponent(`${tabName}!A1:AZ2000`);
-  const resp = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!resp.ok) throw new Error(`Read failed: ${resp.status}`);
+  const range = `${tabName}!A1:AZ2000`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(range)}`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) {
+    const err = await resp.json().catch(()=>({}));
+    throw new Error(`Read failed: ${resp.status} — ${err.error?.message||''}`);
+  }
   const data = await resp.json();
   const rows = data.values || [];
   if (rows.length < 2) return [];
@@ -1572,25 +1573,24 @@ async function writeSheet(tabName, dataArray) {
   const token = await getAccessToken();
   if (!dataArray.length) return;
 
-  // Build headers from first item keys
   const headers = Object.keys(dataArray[0]).filter(k => !k.startsWith('_'));
   const rows = [headers, ...dataArray.map(item => headers.map(h => item[h] || ''))];
 
-  // Clear then write
-  const range = encodeURIComponent(`${tabName}!A1:AZ2000`);
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:clear`,
-    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
-  );
+  const range = `${tabName}!A1:AZ2000`;
+  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(range)}:clear`;
+  const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(tabName + '!A1')}?valueInputOption=RAW`;
 
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}?valueInputOption=RAW`,
-    {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ range: `${tabName}!A1`, majorDimension: 'ROWS', values: rows }),
-    }
-  );
+  await fetch(clearUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+
+  await fetch(writeUrl, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ range: `${tabName}!A1`, majorDimension: 'ROWS', values: rows }),
+  });
 }
 
 // ── Append one row ──
@@ -1598,15 +1598,13 @@ async function appendRow(tabName, item) {
   const token = await getAccessToken();
   const headers = Object.keys(item).filter(k => !k.startsWith('_'));
   const row = [headers.map(h => item[h] || '')];
-  const range = encodeURIComponent(`${tabName}!A1`);
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ range: `${tabName}!A1`, majorDimension: 'ROWS', values: row }),
-    }
-  );
+  const range = `${tabName}!A1`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+  await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ range, majorDimension: 'ROWS', values: row }),
+  });
 }
 
 // ── Full sync: pull from Sheets into local ──
